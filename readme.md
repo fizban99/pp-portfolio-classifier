@@ -11,7 +11,7 @@ Based on the script by fbuchinger
 requires Python 3, git and Portfolio Performance.
 Steps:
 1. `git clone` this repository
-2. in the install directory run `pip3 -r requirements.txt`
+2. in the install directory run `pip3 install -r requirements.txt`
 3. test the script by running `python portfolio-classifier.py test/multifaktortest.xml > classified.xml` to test the script. Then open `classified.xml` in Portfolio Performance.
 
 ## How it works:
