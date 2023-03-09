@@ -459,7 +459,10 @@ class SecurityHoldingReport:
                     # every match is a category
                     value = jsonpath.find(response)
                     keys = [key.value[taxonomy['category']] for key in value]
-                    percentages = [float(key.value[taxonomy['percent']]) for key in value]
+                    if value[0].value.get(taxonomy['percent'],"") =="":
+                        print(f"percentages not found for {grouping_name} for {secid}")
+                    else:
+                        percentages = [float(key.value[taxonomy['percent']]) for key in value]
 
                 # Map names if there is a map
                 if len(taxonomy.get('map',{})) != 0:
@@ -673,7 +676,7 @@ def print_class (grouped_holding):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-    #usage="%(prog)s <input_file> [<output_file>] [-d domain]",
+    #usage="%(prog) <input_file> [<output_file>] [-d domain]",
     description='\r\n'.join(["reads a portfolio performance xml file and auto-classifies",
                  "the securities in it by asset-type, stock-style, sector, holdings, region and country weights",
                  "For each security, you need to have an ISIN"])
