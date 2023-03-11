@@ -156,7 +156,7 @@ COLORS = [
 ]
 
 
-taxonomies = {'Asset-Type': {'url': 'https://www.emea-api.morningstar.com/sal/sal-service/fund/process/asset/v2/',
+taxonomies = {'Asset-Type': {'url': 'https://www.us-api.morningstar.com/sal/sal-service/{type}/process/asset/v2/',
                              'component': 'sal-components-mip-asset-allocation',
                              'jsonpath': '$.allocationMap',                                              
                              'category': '',                                                
@@ -178,7 +178,7 @@ taxonomies = {'Asset-Type': {'url': 'https://www.emea-api.morningstar.com/sal/sa
                                     "CANAssetAllocOther": "Other"
                                     }
                              },
-              'Stock-style': {'url': 'https://www.emea-api.morningstar.com/sal/sal-service/etf/process/weighting/',
+              'Stock-style': {'url': 'https://www.us-api.morningstar.com/sal/sal-service/{type}/process/weighting/',
                             'component': 'sal-components-mip-style-weight',
                             'jsonpath': '$',
                             'category': '',
@@ -197,7 +197,7 @@ taxonomies = {'Asset-Type': {'url': 'https://www.emea-api.morningstar.com/sal/sa
                                     }
                             },                            
 
-              'Sector': {'url': 'https://www.emea-api.morningstar.com/sal/sal-service/fund/portfolio/v2/sector/',
+              'Sector': {'url': 'https://www.emea-api.morningstar.com/sal/sal-service/{type}/portfolio/v2/sector/',
                          'component': 'sal-components-mip-sector-exposure',
                          'jsonpath': '$.EQUITY.fundPortfolio',
                          'category': '',
@@ -217,7 +217,7 @@ taxonomies = {'Asset-Type': {'url': 'https://www.emea-api.morningstar.com/sal/sa
                                 "utilities":"Utilities",
                                 }
                          },   
-              'Holding': {'url':'https://www.emea-api.morningstar.com/sal/sal-service/fund/portfolio/holding/v2/',
+              'Holding': {'url':'https://www.emea-api.morningstar.com/sal/sal-service/{type}/portfolio/holding/v2/',
                           'component': 'sal-components-mip-holdings',
                           'jsonpath': '$.equityHoldingPage.holdingList[*]',
                           'category': 'securityName',
@@ -225,7 +225,7 @@ taxonomies = {'Asset-Type': {'url': 'https://www.emea-api.morningstar.com/sal/sa
                           'table': 6,
                           'column': 4,
                          },  
-              'Region': { 'url': 'https://www.emea-api.morningstar.com/sal/sal-service/fund/portfolio/regionalSector/',
+              'Region': { 'url': 'https://www.emea-api.morningstar.com/sal/sal-service/{type}/portfolio/regionalSector/',
                          'component': 'sal-components-mip-region-exposure',
                          'jsonpath': '$.fundPortfolio',
                          'category': '',
@@ -261,7 +261,7 @@ taxonomies = {'Asset-Type': {'url': 'https://www.emea-api.morningstar.com/sal/sa
                          
                          
                          },  
-              'Country': { 'url': 'https://www.emea-api.morningstar.com/sal/sal-service/fund/portfolio/regionalSectorIncludeCountries/',
+              'Country': { 'url': 'https://www.emea-api.morningstar.com/sal/sal-service/{type}/portfolio/regionalSectorIncludeCountries/',
                           'component': 'sal-components-mip-country-exposure',
                           'jsonpath': '$.fundPortfolio.countries[*]',
                           'category': 'name',
@@ -309,7 +309,8 @@ class Isin2secid:
             
     @staticmethod
     def get_secid(isin):
-        if Isin2secid.mapping.get(isin,"-") == "-":
+        cached_secid = Isin2secid.mapping.get(isin,"-")
+        if cached_secid == "-" or len(cached_secid.split("|"))<3:
             url = f"https://www.morningstar.{DOMAIN}/en/util/SecuritySearch.ashx"
             payload = {
                 'q': isin,
@@ -328,12 +329,14 @@ class Isin2secid:
             response = resp.content.decode('utf-8')
             if response:
                 secid = re.search('\{"i":"([^"]+)"', response).group(1) 
-                Isin2secid.mapping[isin] = secid
+                secid_type =response.split("|")[2].lower()
+                secid_type_domain = secid + "|" + secid_type + "|" + DOMAIN
+                Isin2secid.mapping[isin] = secid_type_domain
             else:
-                secid = ''
+                secid_type_domain = '||'
         else:
-            secid = Isin2secid.mapping[isin]
-        return secid
+            secid_type_domain = Isin2secid.mapping[isin]
+        return secid_type_domain.split("|")
 
 
 class Security:
@@ -370,35 +373,51 @@ class SecurityHoldingReport:
 
 
     
-    def get_bearer_token(self, secid):
-        url = 'https://www.morningstar.de/Common/funds/snapshot/PortfolioSAL.aspx'
+    def get_bearer_token(self, secid, domain):
+        # the secid can change for retrieval purposes
+        # find the retrieval secid
         headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.150 Safari/537.36'}
+        url = f'https://www.morningstar.{domain}/{domain}/funds/snapshot/snapshot.aspx?id={secid}'
+        response = requests.get(url, headers=headers)
+        secid_regexp = r"var FC =  '(.*)';"
+        matches = re.findall(secid_regexp, response.text)
+        if len(matches)>0:
+            secid_to_search = matches[0]
+        else:
+            secid_to_search = secid
+            
+        # get the bearer token for the new secid
+        url = f'https://www.morningstar.{domain}/Common/funds/snapshot/PortfolioSAL.aspx'
         payload = {
-            'FC': secid}
+            'FC': secid_to_search}
         response = requests.get(url, headers=headers, params=payload)
         token_regex = r"tokenMaaS\:\s\"(.+)\""
         resultstringtoken = re.findall(token_regex, response.text)[0]
-        return resultstringtoken    
+        return resultstringtoken, secid_to_search
 
     def calculate_grouping(self, categories, percentages, grouping_name, long_equity):
         for category_name, percentage in zip(categories, percentages):
-            self.grouping[grouping_name][escape(category_name)] += percentage  
+            self.grouping[grouping_name][escape(category_name)] = self.grouping[grouping_name].get(escape(category_name),0) +  percentage  
 
         if grouping_name !='Asset-Type':
             self.grouping[grouping_name] = {k:v*long_equity for k, v in 
                                             self.grouping[grouping_name].items()}
 
 
+     
         
     def load (self, isin, secid):
         if secid is None:
-            secid = Isin2secid.get_secid(isin)
-        self.secid = secid
-        if self.secid == '':
-            print(f"isin {isin} not found in Morningstar, skipping it...")
+            secid, secid_type, domain = Isin2secid.get_secid(isin)
+        if secid == '':
+            print(f"isin {isin} not found in Morningstar for domain '{DOMAIN}', skipping it... Try another domain with -d <domain>")
             return
-        bearer_token = self.get_bearer_token(secid)
-        
+        elif secid_type=="stock":
+            print(f"isin {isin} is a stock, skipping it...")
+            return
+        self.secid = secid
+        bearer_token, secid = self.get_bearer_token(secid, domain)
+        print(f"Retrieving data for {secid_type} {isin} ({secid}) using domain '{domain}'...")
         headers = {
             'accept': '*/*',
             'accept-encoding': 'gzip, deflate, br',
@@ -409,12 +428,13 @@ class SecurityHoldingReport:
         params = {
             'premiumNum': '10',
             'freeNum': '10',
-            'languageId': 'en',
+            'languageId': 'de-DE',
             'locale': 'en',
             'clientId': 'MDC_intl',
             'benchmarkId': 'category',
             'version': '3.60.0',
         }
+    
         
         self.grouping=dict()
         for taxonomy in taxonomies:
@@ -424,10 +444,14 @@ class SecurityHoldingReport:
         json_not_found = False
         for grouping_name, taxonomy in taxonomies.items():
             params['component'] = taxonomy['component']
-            url = taxonomy['url'] + secid + "/data"
-            # print(url)
+            url = taxonomy['url'] + secid + "/data" 
+            # use etf or fund endpoint
+            url = url.replace("{type}", secid_type)
             resp = requests.get(url, params=params, headers=headers)
-
+            if resp.status_code == 401:
+                json_not_found = True
+                print(f"  {grouping_name} for secid {secid} will be retrieved from x-ray...")
+                continue
             try:
                 response = resp.json()
                 jsonpath = parse(taxonomy['jsonpath'])
@@ -454,13 +478,13 @@ class SecurityHoldingReport:
                                       float(value.get('AssetAllocNonUSEquity',{}).get('longAllocation',0)) +           
                                       float(value.get('AssetAllocUSEquity',{}).get('longAllocation',0)))/100
                         except TypeError:
-                            print(f"No information on {grouping_name} for {secid}")
+                            print(f"  No information on {grouping_name} for {secid}")
                 else:
                     # every match is a category
                     value = jsonpath.find(response)
                     keys = [key.value[taxonomy['category']] for key in value]
-                    if value[0].value.get(taxonomy['percent'],"") =="":
-                        print(f"percentages not found for {grouping_name} for {secid}")
+                    if len(value) ==0 or value[0].value.get(taxonomy['percent'],"") =="":
+                        print(f"  percentages not found for {grouping_name} for {secid}")
                     else:
                         percentages = [float(key.value[taxonomy['percent']]) for key in value]
 
@@ -469,7 +493,7 @@ class SecurityHoldingReport:
                     categories = [taxonomy['map'][key] for key in keys if key in taxonomy['map'].keys()]
                     unmapped = [key for key in keys if key not in taxonomy['map'].keys()]
                     if  unmapped:
-                        print(f"Categories not mapped: {unmapped} for {secid}")
+                        print(f"  Categories not mapped: {unmapped} for {secid}")
                 else:
                     # capitalize first letter if not mapping
                     categories = [key[0].upper() + key[1:] for key in keys]
@@ -477,10 +501,10 @@ class SecurityHoldingReport:
                 if percentages:
                     self.calculate_grouping (categories, percentages, grouping_name, long_equity)
                 
-            except json.JSONDecodeError:
-                print(f"secid {secid} not found in PortfolioSAL ({resp.status_code}) retrieving it from x-ray...")
+            except Exception:
+                print(f"  Problem with {grouping_name} for secid {secid} in PortfolioSAL...")
                 json_not_found = True
-                break
+                
             
         if json_not_found:
             
@@ -492,6 +516,8 @@ class SecurityHoldingReport:
             resp = requests.get(url, headers=headers)
             soup = BeautifulSoup(resp.text, 'html.parser')
             for grouping_name, taxonomy in taxonomies.items():
+                if grouping_name in self.grouping:
+                    continue
                 table = soup.select("table.ms_data")[taxonomy['table']]
                 trs = table.select("tr")[1:]
                 if grouping_name == 'Asset-Type':
