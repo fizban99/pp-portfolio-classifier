@@ -407,8 +407,7 @@ class SecurityHoldingReport:
      
         
     def load (self, isin, secid):
-        if secid is None:
-            secid, secid_type, domain = Isin2secid.get_secid(isin)
+        secid, secid_type, domain = Isin2secid.get_secid(isin)
         if secid == '':
             print(f"isin {isin} not found in Morningstar for domain '{DOMAIN}', skipping it... Try another domain with -d <domain>")
             return
@@ -711,7 +710,7 @@ if __name__ == '__main__':
     # Morningstar domain where your securities can be found
     # e.g. es for spain, de for germany, fr for france...
     # this is only used to find the corresponding secid from the ISIN
-    parser.add_argument('-d', default='es',  dest='domain', type=str,
+    parser.add_argument('-d', default='de',  dest='domain', type=str,
                         help='Morningstar domain from which to retrieve the secid (default: es)')
     
     parser.add_argument('input_file', metavar='input_file', type=str,
