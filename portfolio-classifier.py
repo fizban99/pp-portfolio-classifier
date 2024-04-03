@@ -391,7 +391,7 @@ class SecurityHoldingReport:
         payload = {
             'FC': secid_to_search}
         response = requests.get(url, headers=headers, params=payload)
-        token_regex = r"tokenMaaS\:\s\"(.+)\""
+        token_regex = r"const maasToken \=\s\"(.+)\""
         resultstringtoken = re.findall(token_regex, response.text)[0]
         return resultstringtoken, secid_to_search
 
